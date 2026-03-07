@@ -156,12 +156,9 @@ func BenchmarkSample(b *testing.B) {
 
 	for _, k := range []int{10, 50, 100, 500, 1_000, 5_000, 10_000} {
 		b.Run(fmt.Sprintf("K=%d", k), func(b *testing.B) {
-			if len(flows) < b.N {
-				for i := len(flows); i <= b.N; i++ {
-					flows = append(flows, randString(16))
-				}
+			for len(flows) < b.N {
+				flows = append(flows, randString(24))
 			}
-			flows := make([]string, b.N)
 			hk := New(k, 0.9)
 			b.ResetTimer()
 			for _, flow := range flows[:b.N] {
