@@ -55,12 +55,14 @@ func New(k int, decay float64) *HeavyKeeper {
 		buckets[i] = make([]bucket, width)
 	}
 
-	return &HeavyKeeper{
+	hk := &HeavyKeeper{
 		decay:   decay,
 		rand:    rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		buckets: buckets,
 		heap:    make(minHeap, k),
 	}
+	heap.Init(&hk.heap)
+	return hk
 }
 
 // Sample increments the given flow's count by the given amount. It returns
