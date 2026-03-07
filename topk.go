@@ -84,7 +84,7 @@ func (hk *HeavyKeeper) Sample(flow string, incr uint32) bool {
 			for localIncr := incr; localIncr > 0; localIncr-- {
 				if hk.rand.Float64() < math.Pow(hk.decay, float64(row[j].count)) {
 					row[j].count--
-					if row[j].count <= 0 {
+					if row[j].count == 0 {
 						row[j].fingerprint = fp
 						row[j].count = localIncr
 						maxCount = max(maxCount, localIncr)
