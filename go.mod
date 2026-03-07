@@ -1,4 +1,4 @@
-module github.com/segmentio/topk
+module github.com/tysonmote/topk
 
 go 1.17
 
