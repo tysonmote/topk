@@ -213,6 +213,58 @@ func TestDecayAll_edgeCases(t *testing.T) {
 	})
 }
 
+func TestWriteToReadFrom(t *testing.T) {
+	hk := New(5, 0.9)
+	hk.Sample("a", 10)
+	hk.Sample("b", 20)
+	hk.Sample("c", 30)
+	hk.Sample("d", 40)
+	hk.Sample("e", 50)
+
+	originalTop := hk.Top()
+
+	var buf bytes.Buffer
+	if _, err := hk.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	hk2 := &HeavyKeeper{}
+	if _, err := hk2.ReadFrom(&buf); err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+
+	assert(t, originalTop, hk2.Top())
+
+	for _, fc := range originalTop {
+		count, ok := hk2.Count(fc.Flow)
+		if !ok || count != fc.Count {
+			t.Fatalf("Count(%q): expected (%d, true), got (%d, %v)", fc.Flow, fc.Count, count, ok)
+		}
+	}
+
+	hk2.Sample("f", 100)
+	top := hk2.Top()
+	if top[0].Flow != "f" || top[0].Count != 100 {
+		t.Fatalf("expected f=100 at top after continued sampling, got %s=%d", top[0].Flow, top[0].Count)
+	}
+}
+
+func TestWriteToReadFrom_empty(t *testing.T) {
+	hk := New(5, 0.9)
+
+	var buf bytes.Buffer
+	if _, err := hk.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	hk2 := &HeavyKeeper{}
+	if _, err := hk2.ReadFrom(&buf); err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+
+	assert(t, []FlowCount{}, hk2.Top())
+}
+
 func BenchmarkSample(b *testing.B) {
 	flows := make([]string, 1_000_000)
 	for i := range flows {

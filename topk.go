@@ -2,7 +2,10 @@ package topk
 
 import (
 	"container/heap"
+	"encoding/binary"
+	"fmt"
 	"hash/maphash"
+	"io"
 	"math"
 	"math/rand/v2"
 	"sort"
@@ -193,6 +196,135 @@ func (hk *HeavyKeeper) Reset() {
 	for i := range hk.heap {
 		hk.heap[i] = FlowCount{}
 	}
+}
+
+const binaryVersion uint32 = 1
+
+// WriteTo writes the HeavyKeeper state to w in a binary format. The top-K heap
+// and structural parameters are preserved; the internal bucket sketch is not,
+// since it depends on instance-specific hash seeds. After reading back with
+// ReadFrom, Top() and Count() return the same results, but the bucket sketch
+// starts fresh (brief warm-up period for new Sample calls).
+func (hk *HeavyKeeper) WriteTo(w io.Writer) (int64, error) {
+	cw := &countingWriter{w: w}
+
+	if err := binary.Write(cw, binary.LittleEndian, binaryVersion); err != nil {
+		return cw.n, fmt.Errorf("topk: write version: %w", err)
+	}
+	if err := binary.Write(cw, binary.LittleEndian, hk.decay); err != nil {
+		return cw.n, fmt.Errorf("topk: write decay: %w", err)
+	}
+	if err := binary.Write(cw, binary.LittleEndian, uint32(len(hk.heap))); err != nil {
+		return cw.n, fmt.Errorf("topk: write k: %w", err)
+	}
+	if err := binary.Write(cw, binary.LittleEndian, uint32(len(hk.buckets))); err != nil {
+		return cw.n, fmt.Errorf("topk: write depth: %w", err)
+	}
+	if err := binary.Write(cw, binary.LittleEndian, uint32(len(hk.buckets[0]))); err != nil {
+		return cw.n, fmt.Errorf("topk: write width: %w", err)
+	}
+
+	for _, fc := range hk.heap {
+		if err := binary.Write(cw, binary.LittleEndian, uint32(len(fc.Flow))); err != nil {
+			return cw.n, fmt.Errorf("topk: write flow length: %w", err)
+		}
+		if _, err := cw.Write([]byte(fc.Flow)); err != nil {
+			return cw.n, fmt.Errorf("topk: write flow: %w", err)
+		}
+		if err := binary.Write(cw, binary.LittleEndian, fc.Count); err != nil {
+			return cw.n, fmt.Errorf("topk: write count: %w", err)
+		}
+	}
+
+	return cw.n, nil
+}
+
+// ReadFrom reads HeavyKeeper state from r, replacing the current state. The
+// internal bucket sketch is reset with new hash seeds; see WriteTo for details.
+func (hk *HeavyKeeper) ReadFrom(r io.Reader) (int64, error) {
+	cr := &countingReader{r: r}
+
+	var version uint32
+	if err := binary.Read(cr, binary.LittleEndian, &version); err != nil {
+		return cr.n, fmt.Errorf("topk: read version: %w", err)
+	}
+	if version != binaryVersion {
+		return cr.n, fmt.Errorf("topk: unsupported version %d", version)
+	}
+
+	var decay float64
+	if err := binary.Read(cr, binary.LittleEndian, &decay); err != nil {
+		return cr.n, fmt.Errorf("topk: read decay: %w", err)
+	}
+
+	var k, depth, width uint32
+	if err := binary.Read(cr, binary.LittleEndian, &k); err != nil {
+		return cr.n, fmt.Errorf("topk: read k: %w", err)
+	}
+	if err := binary.Read(cr, binary.LittleEndian, &depth); err != nil {
+		return cr.n, fmt.Errorf("topk: read depth: %w", err)
+	}
+	if err := binary.Read(cr, binary.LittleEndian, &width); err != nil {
+		return cr.n, fmt.Errorf("topk: read width: %w", err)
+	}
+
+	h := make(minHeap, k)
+	for i := range h {
+		var flowLen uint32
+		if err := binary.Read(cr, binary.LittleEndian, &flowLen); err != nil {
+			return cr.n, fmt.Errorf("topk: read flow length: %w", err)
+		}
+		flowBuf := make([]byte, flowLen)
+		if _, err := io.ReadFull(cr, flowBuf); err != nil {
+			return cr.n, fmt.Errorf("topk: read flow: %w", err)
+		}
+		if err := binary.Read(cr, binary.LittleEndian, &h[i].Count); err != nil {
+			return cr.n, fmt.Errorf("topk: read count: %w", err)
+		}
+		h[i].Flow = string(flowBuf)
+	}
+
+	buckets := make([][]bucket, depth)
+	for i := range buckets {
+		buckets[i] = make([]bucket, width)
+	}
+
+	slotSeeds := make([]maphash.Seed, depth)
+	for i := range slotSeeds {
+		slotSeeds[i] = maphash.MakeSeed()
+	}
+
+	hk.decay = decay
+	hk.rand = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
+	hk.fpSeed = maphash.MakeSeed()
+	hk.slotSeeds = slotSeeds
+	hk.buckets = buckets
+	hk.heap = h
+	heap.Init(&hk.heap)
+
+	return cr.n, nil
+}
+
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.w.Write(p)
+	cw.n += int64(n)
+	return n, err
+}
+
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (cr *countingReader) Read(p []byte) (int, error) {
+	n, err := cr.r.Read(p)
+	cr.n += int64(n)
+	return n, err
 }
 
 type minHeap []FlowCount
