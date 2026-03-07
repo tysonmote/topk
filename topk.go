@@ -2,11 +2,10 @@ package topk
 
 import (
 	"container/heap"
+	"hash/maphash"
 	"math"
 	"math/rand/v2"
 	"sort"
-
-	"github.com/OneOfOne/xxhash"
 )
 
 // HeavyKeeper implements the Top-K algorithm described in "HeavyKeeper: An
@@ -15,10 +14,12 @@ import (
 //
 // HeavyKeeper is not safe for concurrent use.
 type HeavyKeeper struct {
-	decay   float64
-	rand    *rand.Rand
-	buckets [][]bucket
-	heap    minHeap
+	decay     float64
+	rand      *rand.Rand
+	fpSeed    maphash.Seed
+	slotSeeds []maphash.Seed
+	buckets   [][]bucket
+	heap      minHeap
 }
 
 type bucket struct {
@@ -55,11 +56,18 @@ func New(k int, decay float64) *HeavyKeeper {
 		buckets[i] = make([]bucket, width)
 	}
 
+	slotSeeds := make([]maphash.Seed, depth)
+	for i := range slotSeeds {
+		slotSeeds[i] = maphash.MakeSeed()
+	}
+
 	hk := &HeavyKeeper{
-		decay:   decay,
-		rand:    rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
-		buckets: buckets,
-		heap:    make(minHeap, k),
+		decay:     decay,
+		rand:      rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		fpSeed:    maphash.MakeSeed(),
+		slotSeeds: slotSeeds,
+		buckets:   buckets,
+		heap:      make(minHeap, k),
 	}
 	heap.Init(&hk.heap)
 	return hk
@@ -68,12 +76,12 @@ func New(k int, decay float64) *HeavyKeeper {
 // Sample increments the given flow's count by the given amount. It returns
 // true if the flow is in the top K elements.
 func (hk *HeavyKeeper) Sample(flow string, incr uint32) bool {
-	fp := fingerprint(flow)
+	fp := uint32(maphash.String(hk.fpSeed, flow))
 	var maxCount uint32
 	heapMin := hk.heap.Min()
 
 	for i, row := range hk.buckets {
-		j := slot(flow, uint32(i), uint32(len(row)))
+		j := maphash.String(hk.slotSeeds[i], flow) % uint64(len(row))
 
 		if row[j].count == 0 {
 			row[j].fingerprint = fp
@@ -112,14 +120,6 @@ func (hk *HeavyKeeper) Sample(flow string, incr uint32) bool {
 	}
 
 	return false
-}
-
-func fingerprint(flow string) uint32 {
-	return xxhash.ChecksumString32S(flow, math.MaxUint32)
-}
-
-func slot(flow string, row, width uint32) uint32 {
-	return xxhash.ChecksumString32S(flow, row) % width
 }
 
 // FlowCount is a tuple of flow and estimated count.
