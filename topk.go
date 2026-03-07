@@ -3,7 +3,7 @@ package topk
 import (
 	"container/heap"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"sort"
 
 	"github.com/OneOfOne/xxhash"
@@ -16,6 +16,7 @@ import (
 // HeavyKeeper is not safe for concurrent use.
 type HeavyKeeper struct {
 	decay   float64
+	rand    *rand.Rand
 	buckets [][]bucket
 	heap    minHeap
 }
@@ -56,6 +57,7 @@ func New(k int, decay float64) *HeavyKeeper {
 
 	return &HeavyKeeper{
 		decay:   decay,
+		rand:    rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		buckets: buckets,
 		heap:    make(minHeap, k),
 	}
@@ -80,7 +82,7 @@ func (hk *HeavyKeeper) Sample(flow string, incr uint32) bool {
 			maxCount = max(maxCount, row[j].count)
 		} else {
 			for localIncr := incr; localIncr > 0; localIncr-- {
-				if rand.Float64() < math.Pow(hk.decay, float64(row[j].count)) {
+				if hk.rand.Float64() < math.Pow(hk.decay, float64(row[j].count)) {
 					row[j].count--
 					if row[j].count <= 0 {
 						row[j].fingerprint = fp

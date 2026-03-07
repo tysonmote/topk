@@ -3,7 +3,7 @@ package topk
 import (
 	"bytes"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 )
 
@@ -173,7 +173,7 @@ const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 func randString(n int) string {
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = chars[rand.Int63()%int64(len(chars))]
+		b[i] = chars[rand.IntN(len(chars))]
 	}
 	return string(b)
 }
