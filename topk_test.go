@@ -148,6 +148,71 @@ func TestReset(t *testing.T) {
 	assert(t, []FlowCount{}, hk.Top())
 }
 
+func TestNew_panics(t *testing.T) {
+	assertPanics := func(t *testing.T, name string, f func()) {
+		t.Helper()
+		t.Run(name, func(t *testing.T) {
+			t.Helper()
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected panic")
+				}
+			}()
+			f()
+		})
+	}
+
+	assertPanics(t, "k=0", func() { New(0, 0.9) })
+	assertPanics(t, "k=-1", func() { New(-1, 0.9) })
+	assertPanics(t, "decay=0", func() { New(10, 0) })
+	assertPanics(t, "decay=-0.5", func() { New(10, -0.5) })
+	assertPanics(t, "decay=1.5", func() { New(10, 1.5) })
+}
+
+func TestCount(t *testing.T) {
+	hk := New(5, 0.9)
+	hk.Sample("a", 10)
+	hk.Sample("b", 20)
+
+	count, ok := hk.Count("a")
+	if !ok || count != 10 {
+		t.Fatalf("expected (10, true), got (%d, %v)", count, ok)
+	}
+
+	count, ok = hk.Count("b")
+	if !ok || count != 20 {
+		t.Fatalf("expected (20, true), got (%d, %v)", count, ok)
+	}
+
+	count, ok = hk.Count("missing")
+	if ok || count != 0 {
+		t.Fatalf("expected (0, false), got (%d, %v)", count, ok)
+	}
+}
+
+func TestDecayAll_edgeCases(t *testing.T) {
+	t.Run("zero pct is no-op", func(t *testing.T) {
+		hk := New(5, 0.9)
+		hk.Sample("a", 100)
+		hk.DecayAll(0)
+		assert(t, []FlowCount{{"a", 100}}, hk.Top())
+	})
+
+	t.Run("negative pct is no-op", func(t *testing.T) {
+		hk := New(5, 0.9)
+		hk.Sample("a", 100)
+		hk.DecayAll(-0.5)
+		assert(t, []FlowCount{{"a", 100}}, hk.Top())
+	})
+
+	t.Run("pct > 1 resets", func(t *testing.T) {
+		hk := New(5, 0.9)
+		hk.Sample("a", 100)
+		hk.DecayAll(1.5)
+		assert(t, []FlowCount{}, hk.Top())
+	})
+}
+
 func BenchmarkSample(b *testing.B) {
 	flows := make([]string, 1_000_000)
 	for i := range flows {
