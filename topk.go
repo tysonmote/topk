@@ -118,13 +118,6 @@ func slot(flow string, row, width uint32) uint32 {
 	return xxhash.ChecksumString32S(flow, row) % width
 }
 
-func max(a, b uint32) uint32 {
-	if a < b {
-		return b
-	}
-	return a
-}
-
 // FlowCount is a tuple of flow and estimated count.
 type FlowCount struct {
 	Flow  string
